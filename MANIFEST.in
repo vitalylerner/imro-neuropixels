@@ -1,0 +1,7 @@
+include LICENSE
+include README.md
+include QUICKSTART.md
+include requirements.txt
+recursive-include imro_generator/settings *.csv *.md *.json
+global-exclude *.pyc
+global-exclude __pycache__/*

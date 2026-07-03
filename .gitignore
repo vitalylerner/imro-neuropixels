@@ -7,5 +7,6 @@ build/
 .pytest_cache/
 *.egg
 .DS_Store
-*.json
-!setup.py
+
+# Runtime GUI config (written to the user's home/LOCALAPPDATA, not the repo)
+imro_config.json

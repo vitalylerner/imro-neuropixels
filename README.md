@@ -1,5 +1,5 @@
 # IMRO Neuropixels Generator
-![Main Window](imro_generator/mainwindow_mixed.jpg)
+![Main Window](https://raw.githubusercontent.com/vitalylerner/imro-neuropixels/main/docs/img/mainwindow_mixed.jpg)
 
 Neuropixels probe channel configuration tool. Create IMRO files for SpikeGLX/OpenEphys and export probe configurations for Kilosort.
 
@@ -39,16 +39,17 @@ The GUI lets you:
 ## Installation
 
 ```bash
-# Standard installation
-pip install -e .
+# From PyPI (once published)
+pip install imro-neuropixels
 
-# With development tools
-pip install -e ".[dev]"  # (if extras defined in setup.py)
+# From TestPyPI
+pip install -i https://test.pypi.org/simple/ \
+    --extra-index-url https://pypi.org/simple/ imro-neuropixels
 
-# From source (if cloning)
-git clone <repo-url>
-cd imro-generator
-pip install -e .
+# From source (editable, for development)
+git clone https://github.com/vitalylerner/imro-neuropixels.git
+cd imro-neuropixels
+pip install -e ".[dev]"
 ```
 
 ## Example use
@@ -57,11 +58,11 @@ pip install -e .
 
 example file `20mm.imro` in action, as seen in [`OpenEphys Probe Viewer`](https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Probe-Viewer.html), when flashes of light (2Hz) are shown to a fixating subject, while Neuropixels1.0-NHP is inserted in a visual area. 
 
-![20mm](imro_generator/oephys-probeview.jpg)
+![20mm](https://raw.githubusercontent.com/vitalylerner/imro-neuropixels/main/docs/img/oephys-probeview.jpg)
 
 ### Picking an active region for recording
 
-![IMRO generator main window](imro_generator/mainwindow_striped.jpg)
+![IMRO generator main window](https://raw.githubusercontent.com/vitalylerner/imro-neuropixels/main/docs/img/mainwindow_striped.jpg)
 
 Set boundaries 10mm to 30mm
 
