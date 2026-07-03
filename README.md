@@ -37,19 +37,21 @@ The GUI lets you:
 - **Data processing**: NumPy (installed automatically)
 
 ## Installation
+For an isolated environment, create a separate conda environment, any python>3.8 (for example, 3.11) and name it for example `imro`
 
 ```bash
-# From PyPI (once published)
-pip install imro-neuropixels
+$ conda -n imro python==3.11
 
-# From TestPyPI
-pip install -i https://test.pypi.org/simple/ \
-    --extra-index-url https://pypi.org/simple/ imro-neuropixels
+$ conda activate imro 
+```
+Installation using pip
+```bash
+$ pip install imro-neuropixels
+```
 
-# From source (editable, for development)
-git clone https://github.com/vitalylerner/imro-neuropixels.git
-cd imro-neuropixels
-pip install -e ".[dev]"
+Run the gui
+```bash
+$ imro-gui
 ```
 
 ## Example use
