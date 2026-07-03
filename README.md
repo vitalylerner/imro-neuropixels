@@ -1,8 +1,11 @@
-# IMRO Generator
+# IMRO Neuropixels Generator
+![Main Window](imro_generator/mainwindow_mixed.jpg)
 
+Neuropixels probe channel configuration tool. Create IMRO files for SpikeGLX/OpenEphys and export probe configurations for Kilosort.
 
-When [`Neurpixels probes`](https://www.neuropixels.org/probe-1-0-nhp-long) are used with [`OpenEphys`](https://github.com/open-ephys), a challenge of creating channel map arises.  The [`Neurpixels plugin`](https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Neuropixels-PXI.html)allows to load SpixeGLX-native[`IMRO`](https://billkarsh.github.io/SpikeGLX/help/imroTables/) files but suggests no plugin for creating them. IMRO-generator is oriented for creating the IMRO files based on depth coverage, and exporting the tables to [`kilosort`](https://github.com/MouseLand/kilosort) [`probe description in JSON format`](https://kilosort.readthedocs.io/en/latest/tutorials/make_probe.html)
-![IMRO generator main window](imro_generator/mainwindow_striped.jpg)
+**Problem:** The [OpenEphys Neuropixels Plugin](https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Neuropixels-PXI.html) can load [SpikeGLX IMRO](https://billkarsh.github.io/SpikeGLX/help/imroTables/) files but provides no tool to create them.
+
+**Solution:** IMRO Generator lets you configure which electrodes to record from based on depth coverage, then export as IMRO files or [Kilosort probe dictionaries](https://kilosort.readthedocs.io/en/latest/tutorials/make_probe.html).
 ## Installation
 
 **New to probe configuration?** Start here:
@@ -49,6 +52,15 @@ pip install -e .
 ```
 
 ## Example use
+
+### Mapping 2cm from the tip up
+
+example file `20mm.imro` in action, as seen in [`OpenEphys Probe Viewer`](https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Probe-Viewer.html), when flashes of light (2Hz) are shown to a fixating subject, while Neuropixels1.0-NHP is inserted in a visual area. 
+
+![20mm](imro_generator/oephys-probeview.jpg)
+
+### Picking an active region for recording
+
 ![IMRO generator main window](imro_generator/mainwindow_striped.jpg)
 
 Set boundaries 10mm to 30mm
@@ -56,3 +68,10 @@ Set boundaries 10mm to 30mm
 Map -> Save as IMRO 
 
 Map -> Save kilosort probe
+
+## Helpful Resources
+
+- **[OpenEphys Neuropixels Plugin](https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Neuropixels-PXI.html)** — GUI for recording with Neuropixels probes, loads IMRO files
+- **[SpikeGLX IMRO Format](https://billkarsh.github.io/SpikeGLX/help/imroTables/)** — Complete IMRO specification and format documentation
+- **[Kilosort Probe Dictionary](https://kilosort.readthedocs.io/en/latest/tutorials/make_probe.html)** — Format for probe configurations in Kilosort4
+- **[Neuropixels Probe 1.0 NHP](https://www.neuropixels.org/probe-1-0-nhp-long)** — Official probe specifications

@@ -10,8 +10,8 @@ from PyQt5.QtWidgets import (
     QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QGraphicsRectItem,
     QMenu, QAction
 )
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIntValidator
+from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtGui import QIntValidator, QDesktopServices
 
 import pyqtgraph as pg
 import numpy as np
@@ -256,6 +256,22 @@ class ImroConfigGUI(QMainWindow):
 
         # Help menu
         help_menu = menubar.addMenu("Help")
+
+        # Documentation links
+        ephys_action = QAction("OpenEphys Neuropixels Plugin", self)
+        ephys_action.triggered.connect(lambda: self._open_url("https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Neuropixels-PXI.html"))
+        help_menu.addAction(ephys_action)
+
+        imro_action = QAction("IMRO Format Documentation", self)
+        imro_action.triggered.connect(lambda: self._open_url("https://billkarsh.github.io/SpikeGLX/help/imroTables/"))
+        help_menu.addAction(imro_action)
+
+        kilosort_action = QAction("Kilosort Probe Dictionary", self)
+        kilosort_action.triggered.connect(lambda: self._open_url("https://kilosort.readthedocs.io/en/latest/tutorials/make_probe.html"))
+        help_menu.addAction(kilosort_action)
+
+        help_menu.addSeparator()
+
         about_action = QAction("About", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
@@ -275,6 +291,10 @@ class ImroConfigGUI(QMainWindow):
             QMessageBox.information(self, "Probe Changed", f"Switched to probe: {probe_name}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to switch probe: {str(e)}")
+
+    def _open_url(self, url: str) -> None:
+        """Open URL in default browser."""
+        QDesktopServices.openUrl(QUrl(url))
 
     def _show_about(self) -> None:
         """Show about dialog."""
@@ -499,7 +519,7 @@ class ImroConfigGUI(QMainWindow):
 
     def _reset_view(self) -> None:
         """Reset probe visualization to full view."""
-        max_y = self.imro_gen.probe_loader.get_max_depth_um()
+        max_y = self.imro_gen.max_depth
         self.plot_widget.setXRange(-10, 250, padding=0)
         self.plot_widget.setYRange(-100, max_y + 1000, padding=0)
 
