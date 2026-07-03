@@ -32,6 +32,23 @@ Run the gui
 ```bash
 $ imro-gui
 ```
+## Documentation
+[Quick Start](QUICKSTART.md)
+[Architecture](docs/ARCHITECTURE.md)
+[Electrodes-channel assignment algorithm](docs/imro_algorithm.md)
+[User Guide](docs/imro_user_guide_A_tutorial.md)
+
+## Future directions
+
+#### Multiple regions
+
+Currently only one region defined by depth-min and depth-max is available. Need to add an option for multiple regions, for example 3 to 5 mm and 10 to 15 mm. 
+
+#### Adding more probes. 
+Currently works fine with a single [Neropixels1.0-NHP](https://www.neuropixels.org/probe-1-0-nhp-long) probe. The definitions are not hard-coded, but rather are defined in settings files. Need to add more probes to the settings/probes and test with other probes.
+
+#### MRI pictures overlay
+Don't have this functionality at the moment, but might be useful in future
 
 ## Example use
 

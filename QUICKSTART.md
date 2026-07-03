@@ -1,14 +1,5 @@
 # Quick Start Guide — IMRO Generator GUI
 
-**For end-users who want to configure Neuropixels NP1.0 probes.**
-
-## Installation
-
-```bash
-pip install -e .
-```
-
-**Requires Python 3.8 or later.**
 
 ## Launch the GUI
 
