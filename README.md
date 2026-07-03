@@ -6,35 +6,14 @@ Neuropixels probe channel configuration tool. Create IMRO files for SpikeGLX/Ope
 **Problem:** The [OpenEphys Neuropixels Plugin](https://open-ephys.github.io/gui-docs/User-Manual/Plugins/Neuropixels-PXI.html) can load [SpikeGLX IMRO](https://billkarsh.github.io/SpikeGLX/help/imroTables/) files but provides no tool to create them.
 
 **Solution:** IMRO Generator lets you configure which electrodes to record from based on depth coverage, then export as IMRO files or [Kilosort probe dictionaries](https://kilosort.readthedocs.io/en/latest/tutorials/make_probe.html).
-## Installation
-
-**New to probe configuration?** Start here:
-
-1. **Install**: `pip install -e .` (requires Python 3.8+)
-2. **Launch**: `imro-gui`
-3. **Quick guide**: See [`QUICKSTART.md`](QUICKSTART.md)
 
 The GUI lets you:
 - Choose your recording depth range (0–44.16 mm)
 - Select assignment mode (Striped or Mixed) for uniform electrode distribution
 - Configure gains, filters, and reference type
 - Save IMRO files for OpenEphys/SpikeGLX
+- Save JSON file for kilosort
 - Load and modify existing IMRO configurations
-
-## For Developers
-
-**Integrating into your software?** See:
-
-- [`DEVELOPERS.md`](DEVELOPERS.md) — Architecture, setup, extending
-- `docs/imro_algorithm.md` — Algorithm specification
-- `docs/imro_dev_guide_A_overview.md` — Detailed architecture
-- `tests/` — Test suite with examples
-
-## System Requirements
-
-- **Python**: 3.8 or later
-- **GUI dependencies**: PyQt5, pyqtgraph (installed automatically)
-- **Data processing**: NumPy (installed automatically)
 
 ## Installation
 For an isolated environment, create a separate conda environment, any python>3.8 (for example, 3.11) and name it for example `imro`
