@@ -9,3 +9,4 @@ build/
 .DS_Store
 *.json
 !setup.py
+offline_packages/*.*
