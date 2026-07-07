@@ -10,3 +10,6 @@ build/
 *.json
 !setup.py
 offline_packages/*.*
+
+# Runtime GUI config (written to the user's home/LOCALAPPDATA, not the repo)
+imro_config.json

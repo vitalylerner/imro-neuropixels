@@ -224,7 +224,7 @@ class ImroConfigGUI(QMainWindow):
         change_probe_menu = probe_menu.addMenu("Change Probe")
 
         # Get available probes
-        probes_dir = Path(__file__).parent.parent.parent / 'settings' / 'probes'
+        probes_dir = Path(__file__).parent.parent / 'settings' / 'probes'
         if probes_dir.exists():
             for probe_folder in sorted(probes_dir.iterdir()):
                 if probe_folder.is_dir() and (probe_folder / 'probe.json').exists():

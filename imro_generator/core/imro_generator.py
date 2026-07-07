@@ -15,7 +15,7 @@ class ImroGenerator:
             probe_name: Name of probe (default: 'npx1.0-nhp')
         """
         # Construct path to probe CSV
-        probe_dir = Path(__file__).parent.parent.parent / 'settings' / 'probes' / probe_name
+        probe_dir = Path(__file__).parent.parent / 'settings' / 'probes' / probe_name
         csv_path = probe_dir / 'channelmap.csv'
 
         if not csv_path.exists():
@@ -345,7 +345,7 @@ class ImroGenerator:
         - 'format_to_types': maps IMRO format name to list of probe types
         - 'type_to_format': maps probe type number to IMRO format name
         """
-        mappings_path = Path(__file__).parent.parent.parent / 'settings' / 'probes' / 'probes.csv'
+        mappings_path = Path(__file__).parent.parent / 'settings' / 'probes' / 'probes.csv'
 
         if not mappings_path.exists():
             return {'format_to_types': {}, 'type_to_format': {}}
