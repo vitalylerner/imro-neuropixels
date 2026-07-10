@@ -47,8 +47,8 @@ The IMRO Config GUI window will open with an interactive probe visualization sho
 ### Step 2: Select Probe Configuration
 
 Use the **Assignment Mode** selector to choose how electrodes are distributed:
-- **Striped mode**: Channels cycle through banks sequentially
-- **Mixed mode** (recommended): Even/odd columns are interleaved for more uniform depth spacing
+- **Mixed mode** (recommended): banks are interleaved throughout the range, so both columns span the whole depth range — uniform two-column coverage
+- **Striped mode**: the two columns form separate stripes (even column = shallow banks, odd column = deep banks), giving single-column coverage per depth region
 
 ### Step 3: Define Your Recording Depth
 
@@ -62,13 +62,13 @@ The NP1.0 probe is 44.16 mm long total, with 4416 electrodes in 2 columns (odd/e
 
 How to distribute channels across banks (physical groups along the shaft):
 
-- **Striped mode**: Channels 0, K, 2K, ... → Bank 0; channels 1, K+1, 2K+1, ... → Bank 1, etc.
-  - Cycles channels sequentially through banks
-  - Even coverage across depth range
-  
-- **Mixed mode** (default): Even and odd columns are interleaved
-  - Provides more uniform electrode spacing
-  - Better for visualizing local structure
+- **Mixed mode** (default): channel `c` → bank `B_start + (c mod K)`, a single round-robin over all K banks
+  - Both columns span the full depth range, interleaved
+  - Uniform two-column coverage — the sensible default for a wide range
+
+- **Striped mode**: the K banks are split into two stripes — even column (0, 2, 4, …) fills the lower banks, odd column (1, 3, 5, …) the upper banks
+  - Each depth region is sampled by a single column
+  - For a two-bank range this reproduces `examples/single_column.imro`
 
 ### Step 5: Set Gain and Filter
 
@@ -125,7 +125,7 @@ Breaking it down:
 
 1. Set **Minimum depth** = 9.9 mm
 2. Set **Maximum depth** = 10.1 mm
-3. Use **Striped mode** to spread channels across banks
+3. Use **Mixed mode** (a narrow range falls in one bank, so both modes behave the same here — both columns are recorded)
 4. Generate Channels
 
 Result: Channels clustered near 10 mm depth.

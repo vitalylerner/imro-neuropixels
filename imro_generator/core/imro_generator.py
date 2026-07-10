@@ -38,25 +38,33 @@ class ImroGenerator:
 
     def generate_electrode_list(self, depth_min_um: int, depth_max_um: int, assignment_mode: str = 'mixed') -> List[int]:
         """
-        Interleaved assignment algorithm for electrode selection.
+        Assign channels to banks spanning a depth range and return the electrodes.
 
-        Assigns channels round-robin across K banks spanning the depth range,
-        creating near-optimal uniform distribution of electrodes.
+        Two assignment modes, which produce genuinely different physical layouts:
 
-        Algorithm:
-        1. Find banks that cover the depth range (B_start, B_end)
-        2. Calculate K = number of banks needed
-        3. For striped mode: assign all channels sequentially through banks
-           For mixed mode: shuffle channels, run algorithm, then map back
-        4. Filter channels where electrode depth falls in [depth_min_um, depth_max_um]
+        - **mixed** — banks are mixed/interleaved throughout the range via
+          round-robin: channel c is assigned bank ``b_start + (c % K)``. Both
+          columns are recorded across the whole depth range, giving uniform
+          two-column coverage. This is the sensible default for a wide range.
+
+        - **striped** (single-column per depth region) — the two columns form
+          separate stripes: even channels (column 0) fill the lower banks, odd
+          channels (column 1) fill the upper banks. Each depth region is sampled
+          by a single column, giving contiguous single-column coverage over a
+          longer span. For a two-bank range this reproduces the layout of
+          ``examples/single_column.imro`` (even → bank b_start, odd → bank
+          b_start+1).
+
+        Every channel is assigned to an in-range bank (see ``assign`` below); no
+        channel is dropped or stranded on bank 0.
 
         Args:
             depth_min_um: Minimum depth in micrometers
             depth_max_um: Maximum depth in micrometers
-            assignment_mode: 'striped' or 'mixed'
+            assignment_mode: 'mixed' (interleaved) or 'striped' (single-column)
 
         Returns:
-            List of electrode IDs in depth order
+            List of electrode IDs
         """
         # Find banks that cover this range
         b_start = None
@@ -80,48 +88,89 @@ class ImroGenerator:
             return []
 
         k = b_end - b_start + 1
+
+        # Per-channel bank -> (electrode_id, depth) lookup, built once.
+        by_channel = {}
+        for r in self.df.itertuples():
+            by_channel.setdefault(int(r.channel), {})[int(r.bank)] = (int(r.electrode), float(r.y))
+
+        def in_range(y):
+            return depth_min_um <= y <= depth_max_um
+
+        def assign(channel_id, allowed_banks, preferred_bank):
+            """Return an electrode for this channel, always in-range if possible.
+
+            Preference order: the round-robin (preferred) bank if it is in range,
+            otherwise the in-range allowed bank closest to it, otherwise the
+            allowed bank whose depth is nearest the range. A channel is NEVER
+            dropped, so no channel is ever stranded on bank 0 in the export.
+            """
+            cand = by_channel.get(channel_id, {})
+            allowed = [b for b in allowed_banks if b in cand]
+            if not allowed:
+                allowed = sorted(cand.keys(), key=lambda b: abs(b - preferred_bank))
+            in_r = sorted((b for b in allowed if in_range(cand[b][1])),
+                          key=lambda b: (abs(b - preferred_bank), b))
+            if in_r:
+                return cand[in_r[0]][0]
+            nearest = min(allowed, key=lambda b: min(abs(cand[b][1] - depth_min_um),
+                                                     abs(cand[b][1] - depth_max_um)))
+            return cand[nearest][0]
+
         selected_electrodes = []
 
-        if assignment_mode == 'striped':
-            # Striped: sequential cycling through banks (round-robin)
+        if assignment_mode == 'mixed':
+            # Mixed: round-robin cycling through all K banks, interleaving both
+            # columns uniformly across the depth range.
+            all_banks = list(range(b_start, b_end + 1))
             for channel_id in range(self.total_channels):
-                assigned_bank = b_start + (channel_id % k)
-                electrode = self._get_electrode_in_bank(channel_id, assigned_bank, depth_min_um, depth_max_um)
-                if electrode is not None:
-                    selected_electrodes.append(electrode)
+                rr = b_start + (channel_id % k)
+                selected_electrodes.append(assign(channel_id, all_banks, rr))
 
-        else:  # mixed mode
-            # Mixed: interleave columns deterministically for balanced distribution
-            # Process channels as: 0, 1, 2, 3, 4, 5, ... (mixing even/odd)
-            # but traverse with different pattern than striped
-            # Use offset to create different bank assignments
-            even_channels = list(range(0, self.total_channels, 2))  # 0, 2, 4, ...
-            odd_channels = list(range(1, self.total_channels, 2))   # 1, 3, 5, ...
+        else:  # striped mode: single-column-per-region
+            # Split the K banks between the two columns: the lower ceil(K/2)
+            # banks go to the even column (column 0), the upper floor(K/2) to the
+            # odd column (column 1). Each column round-robins within its own bank
+            # group. For K == 2 this gives even -> b_start, odd -> b_start + 1,
+            # matching examples/single_column.imro; for K == 1 both columns share
+            # the single bank.
+            n_even_banks = (k + 1) // 2
+            even_banks = [b_start + i for i in range(n_even_banks)]
+            odd_banks = [b_start + i for i in range(n_even_banks, k)] or even_banks
 
-            # Interleave: process even and odd channels together
-            for i in range(len(even_channels)):
-                # Even channel
-                channel_id = even_channels[i]
-                assigned_bank = b_start + (i % k)
-                electrode = self._get_electrode_in_bank(channel_id, assigned_bank, depth_min_um, depth_max_um)
-                if electrode is not None:
-                    selected_electrodes.append(electrode)
+            for i, channel_id in enumerate(range(0, self.total_channels, 2)):
+                rr = even_banks[i % len(even_banks)]
+                selected_electrodes.append(assign(channel_id, even_banks, rr))
 
-                # Odd channel
-                if i < len(odd_channels):
-                    channel_id = odd_channels[i]
-                    assigned_bank = b_start + ((i + k//2) % k) if k > 1 else b_start
-                    electrode = self._get_electrode_in_bank(channel_id, assigned_bank, depth_min_um, depth_max_um)
-                    if electrode is not None:
-                        selected_electrodes.append(electrode)
+            for i, channel_id in enumerate(range(1, self.total_channels, 2)):
+                rr = odd_banks[i % len(odd_banks)]
+                selected_electrodes.append(assign(channel_id, odd_banks, rr))
 
         return selected_electrodes
 
     def generate_imro_content(self, electrode_ids: List[int], ap_gain: int = 500,
                            lf_gain: int = 250, ap_filter: bool = True,
-                           ref_type: str = 'tip') -> str:
+                           ref_type: str = 'tip', probe_type: int = 0) -> str:
         """
         Generate IMRO format content for selected electrodes.
+
+        Produces the single-line, space-separated IMRO format that OpenEphys and
+        SpikeGLX accept:
+
+            (0,384)(0 0 1 500 250 1)(1 0 1 500 250 1)...(383 2 1 500 250 1)
+
+        - Header is ``(probe_type,num_channels)`` with a NUMERIC probe type
+          (0 = NP1.0). A non-numeric header such as ``NP1000`` is rejected by
+          OpenEphys.
+        - Every one of the ``num_channels`` channels gets exactly one entry.
+          OpenEphys has no notion of a disabled channel: any channel not covered
+          by ``electrode_ids`` is parked on bank 0 (its tip electrode).
+        - Fields within an entry are SPACE-separated, not comma-separated.
+
+        See ``docs/ISSUES.md`` for the history of this format (previous versions
+        emitted a comma-separated, multi-line file with a ``NP1000`` header and
+        fewer than ``num_channels`` entries, which OpenEphys silently rejected —
+        falling back to its default map of all channels on the tip).
 
         Args:
             electrode_ids: List of selected electrode IDs
@@ -129,6 +178,7 @@ class ImroGenerator:
             lf_gain: LF band gain (50-3000, typically 250)
             ap_filter: Whether AP highpass filter is ON
             ref_type: Reference type ('external', 'tip', or 'on_shank')
+            probe_type: Numeric IMRO probe type for the header (0 = NP1.0)
 
         Returns:
             IMRO format string ready to write to file
@@ -141,29 +191,28 @@ class ImroGenerator:
         else:  # on_shank
             ref_id = 2
 
-        # Create mapping of selected electrodes
+        filter_flag = 1 if ap_filter else 0
+
+        # Map each selected electrode to its channel/bank. If two selected
+        # electrodes share a channel (should not happen for a valid selection),
+        # the lowest bank wins.
         selected_set = set(electrode_ids)
+        channel_bank = {}
+        for _, row in self.df[self.df['electrode'].isin(selected_set)].iterrows():
+            channel_id = int(row['channel'])
+            bank = int(row['bank'])
+            if channel_id not in channel_bank or bank < channel_bank[channel_id]:
+                channel_bank[channel_id] = bank
 
-        # Build IMRO entries for all 384 channels
-        imro_lines = ["(NP1000,384)"]
-
+        # Emit an entry for EVERY channel; uncovered channels default to bank 0.
+        # No trailing newline: OpenEphys-exported files are a single line with no
+        # terminator, and matching that exactly avoids parser rejection.
+        parts = [f"({probe_type},{self.total_channels})"]
         for channel_id in range(self.total_channels):
-            # Find which electrode (if any) is assigned to this channel
-            matching_rows = self.df[
-                (self.df['channel'] == channel_id) &
-                (self.df['electrode'].isin(selected_set))
-            ]
+            bank = channel_bank.get(channel_id, 0)
+            parts.append(f"({channel_id} {bank} {ref_id} {ap_gain} {lf_gain} {filter_flag})")
 
-            if len(matching_rows) > 0:
-                # Use first matching electrode for this channel
-                row = matching_rows.iloc[0]
-                bank = int(row['bank'])
-                filter_flag = 1 if ap_filter else 0
-
-                imro_entry = f"({channel_id},{bank},{ref_id},{ap_gain},{lf_gain},{filter_flag})"
-                imro_lines.append(imro_entry)
-
-        return "\n".join(imro_lines) + "\n"
+        return "".join(parts)
 
     def parse_imro_file(self, imro_content: str) -> dict:
         """
@@ -253,11 +302,11 @@ class ImroGenerator:
             channel_id = entry['channel']
             bank = entry['bank']
 
-            # Find electrode for this channel-bank pair
+            # Find electrode for this channel-bank pair. Reference sites are
+            # included (see _get_electrode_in_bank) so a full-bank file round-trips.
             row = self.df[
                 (self.df['channel'] == channel_id) &
-                (self.df['bank'] == bank) &
-                (self.df['ref'] == False)
+                (self.df['bank'] == bank)
             ]
 
             if len(row) > 0:
@@ -288,45 +337,39 @@ class ImroGenerator:
 
     def _infer_assignment_mode(self, entries: list) -> str:
         """
-        Infer whether entries use striped or mixed assignment.
+        Infer whether entries use mixed (interleaved) or striped (single-column).
 
-        Striped: channels 0,1,2,3,... assigned to banks 0,1,2,0,1,2,...
-        Mixed: even channels vs odd channels get different offsets
+        - striped (single-column): the even column occupies a contiguous lower
+          bank block and the odd column a contiguous upper block, so every even
+          channel's bank is below every odd channel's bank
+          (``max(even) < min(odd)``).
+        - mixed (interleaved): round-robin makes the columns share/interleave the
+          banks, so the even column also reaches the higher banks
+          (``max(even) >= min(odd)``).
+
+        For a single- or two-bank range the two modes coincide; the ordered-
+        disjoint test reports 'striped' there, but the two produce identical maps.
         """
-        if len(entries) < 10:
+        even_banks = [e['bank'] for e in entries if e['channel'] % 2 == 0]
+        odd_banks = [e['bank'] for e in entries if e['channel'] % 2 == 1]
+        if not even_banks or not odd_banks:
+            return 'mixed'
+
+        if max(even_banks) < min(odd_banks):
             return 'striped'
-
-        # Check pattern of first 10 channels
-        striped_score = 0
-        mixed_score = 0
-
-        for i in range(min(10, len(entries))):
-            entry = entries[i]
-            channel = entry['channel']
-            bank = entry['bank']
-            k = 3  # Assume 3 banks for inference
-
-            # Check striped pattern: bank = (channel % k)
-            expected_bank_striped = channel % k
-            if bank == expected_bank_striped:
-                striped_score += 1
-
-            # Check mixed pattern: even and odd channels have different patterns
-            if channel % 2 == 0:
-                expected_bank_mixed = (channel // 2) % k
-            else:
-                expected_bank_mixed = ((channel - 1) // 2 + k // 2) % k
-            if bank == expected_bank_mixed:
-                mixed_score += 1
-
-        return 'mixed' if mixed_score > striped_score else 'striped'
+        return 'mixed'
 
     def _get_electrode_in_bank(self, channel_id: int, bank: int, depth_min_um: int, depth_max_um: int) -> int:
-        """Find electrode for channel in bank, return if in depth range, else None."""
+        """Find electrode for channel in bank, return if in depth range, else None.
+
+        Reference sites are NOT excluded: on this probe channel 191 is a reference
+        in every bank, but OpenEphys still assigns it to the selected bank like any
+        other channel. Dropping it here would make a "full bank" configuration
+        impossible (channel 191 would fall back to bank 0).
+        """
         row = self.df[
             (self.df['channel'] == channel_id) &
-            (self.df['bank'] == bank) &
-            (self.df['ref'] == False)
+            (self.df['bank'] == bank)
         ]
 
         if len(row) > 0:

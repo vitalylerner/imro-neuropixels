@@ -68,18 +68,20 @@ One reference electrode per bank, located at channel position 191:
 
 ## IMRO Format
 
-The probe uses **imro_np1000** format for SpikeGLX configuration files.
+The probe uses the SpikeGLX/OpenEphys **imro_np1000** format. The file is a single
+line: a header followed by one space-separated entry per channel, with no line
+breaks and no trailing newline.
 
 ### IMRO File Structure
 
-**Header:**
+**Header:** `(probe_type,num_channels)` — numeric probe type (`0` for NP1.0):
 ```
-(NP1000,384)
+(0,384)
 ```
 
-**Entries (one per channel):**
+**Entries (one per channel), fields separated by spaces:**
 ```
-(ChannelID, Bank, Reference, APgain, LFgain, Filter)
+(ChannelID Bank Reference APgain LFgain Filter)
 ```
 
 ### Field Definitions
@@ -87,26 +89,24 @@ The probe uses **imro_np1000** format for SpikeGLX configuration files.
 | Field | Range | Description |
 |-------|-------|-------------|
 | **ChannelID** | 0-383 | Sequential channel identifier |
-| **Bank** | 0-1 | Which electrode bank (NP1.0 has 2 banks) |
+| **Bank** | 0-11 | Which electrode bank (this probe has 12 banks) |
 | **Reference** | 0-4 | Reference electrode: 0=external, 1=tip, 2-4=on-shank |
 | **APgain** | 50-3000 | AP band amplification (typically 500) |
 | **LFgain** | 50-3000 | LF band amplification (typically 250) |
 | **Filter** | 0-1 | AP highpass filter: 1=ON, 0=OFF |
 
+Every one of the 384 channels must have an entry.
+
 ### Example IMRO File
 
 ```
-(NP1000,384)
-(0,0,1,500,250,1)
-(1,0,1,500,250,1)
-(2,0,1,500,250,1)
-...
-(383,1,1,500,250,1)
-)
+(0,384)(0 0 1 500 250 1)(1 0 1 500 250 1)(2 0 1 500 250 1)...(383 1 1 500 250 1)
 ```
 
 ### Reference Notes
 
 - Bank assignment determines which physical electrodes are connected to each channel
-- For Neuropixels 1.0, Bank 0 and Bank 1 cover different depth regions on the same shank
-- On-shank references are at electrode positions 191 (bank 0), 575 (bank 1), etc.
+- Each bank covers a different depth region on the same shank
+- On-shank references are at electrode positions 191 (bank 0), 575 (bank 1), etc.;
+  channel 191 is a reference site in every bank but is still assigned to the
+  selected bank like any other channel

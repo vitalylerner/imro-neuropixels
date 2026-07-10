@@ -44,64 +44,70 @@ uses a new IMRO format, add its rows to `probes.csv`.
 
 ---
 
-## Basic algorithm: striped
+## Shared first step — find the banks that span the range
 
 Both modes share the same first step, then differ only in how channels are spread across
 banks.
 
-**Shared step — find the banks that span the requested depth range:**
-
 - `B_start` = the lowest bank whose electrodes reach `depth_min`
 - `B_end` = the highest bank whose electrodes reach into `depth_max`
-- `K = B_end − B_start + 1` banks must be interleaved to cover the range
+- `K = B_end − B_start + 1` banks must be combined to cover the range
 
 Because a single bank only spans ~7.64 mm, covering a wider range means combining several
 banks — but each channel can be wired to only one bank at a time (see
 [PROBE_FORMAT.md → Electrode-to-Channel Mapping](../imro_generator/settings/probes/PROBE_FORMAT.md#electrode-to-channel-mapping)).
 
-**Striped assignment:**
+**Every channel is always assigned to an in-range bank.** A channel first tries its
+mode-assigned bank; if that electrode falls outside `[depth_min, depth_max]` it is moved
+to the nearest in-range bank (within its allowed bank group). No channel is dropped, so
+none is ever stranded on bank 0 at the tip. Channel 191 (a reference site in every bank)
+is assigned like any other channel, so a full bank exports all 384 channels.
+
+---
+
+## Basic algorithm: mixed (interleaved — default)
+
+Mixed mode mixes/interleaves the banks throughout the range with a single round-robin over
+channel index:
 
 ```
 for channel_id in 0 .. 383:
     assigned_bank = B_start + (channel_id mod K)
 ```
 
-A single round-robin walks the channels in natural order (0, 1, 2, 3, …) and cycles them
-through the `K` banks. Each (channel, bank) pair is then resolved to a non-reference
-electrode and kept only if its depth falls inside `[depth_min, depth_max]`.
-
-Because a channel's *column* is just its parity (even = column 0, odd = column 1), a
-plain round-robin over channel index moves both columns through the bank cycle **in the
-same phase**. The two columns therefore land at the same depths, producing the horizontal
-**stripes** of active sites you see in
-[the striped view](img/mainwindow_striped.jpg). The interleaving still gives a uniform
-`K × 40 µm` grid within the range — the near-optimality of this scheme is derived in
+Both columns cycle through all `K` banks, so each column spans the entire depth range and
+the two columns interleave in depth. This gives uniform two-column coverage across the
+whole range — a uniform `K × 40 µm` grid whose near-optimality is derived in
 [imro_algorithm.md → Optimal Analytical Solution](imro_algorithm.md#optimal-analytical-solution--interleaved-assignment).
+This is the sensible default for a wide range.
 
 ---
 
-## Basic algorithm: mixed
+## Basic algorithm: striped (single-column per region)
 
-Mixed mode uses the same bank range (`B_start`, `K`) but treats the two columns
-separately and offsets their bank cycles by half a period:
+Striped mode splits the `K` banks into two contiguous stripes — the lower `ceil(K/2)`
+banks for the even column, the upper `floor(K/2)` for the odd column — and round-robins
+each column within its own stripe:
 
 ```
-even_channels = 0, 2, 4, … , 382     # column 0
-odd_channels  = 1, 3, 5, … , 383     # column 1
+even_channels = 0, 2, 4, … , 382     # column 0 -> lower banks
+odd_channels  = 1, 3, 5, … , 383     # column 1 -> upper banks
 
-for i in 0 .. 191:
-    bank(even_channels[i]) = B_start + ( i          mod K)
-    bank(odd_channels[i])  = B_start + ((i + K//2)  mod K)
+even_banks = [B_start .. B_start + ceil(K/2) - 1]
+odd_banks  = [B_start + ceil(K/2) .. B_end]
+
+bank(even_channels[i]) = even_banks[i mod len(even_banks)]
+bank(odd_channels[i])  = odd_banks [i mod len(odd_banks)]
 ```
 
-The `K//2` phase shift on the odd (right) column staggers it against the even (left)
-column, so the two columns' selected electrodes **interleave in depth** instead of
-aligning. The result is the denser, checkerboard-like coverage of
-[the mixed view](img/mainwindow_mixed.jpg) — the same per-column pitch as striped, but the
-columns fill each other's gaps, roughly halving the effective vertical spacing across the
-shank. (When `K == 1` the offset is disabled and mixed degenerates to striped.)
+The even (left) column occupies the shallow banks and the odd (right) column the deep
+banks, so each depth region is sampled by a single column — contiguous single-column
+coverage over a longer span, at the cost of a lopsided layout for wide ranges. For `K == 2`
+this reduces to even → `B_start`, odd → `B_start + 1`, reproducing
+[examples/single_column.imro](../examples/single_column.imro). (When `K == 1` both columns
+share the single bank, so striped and mixed coincide.)
 
-Mode selection is the `assignment_mode` argument (`'striped'` or `'mixed'`, default
+Mode selection is the `assignment_mode` argument (`'mixed'` or `'striped'`, default
 `'mixed'`); everything downstream — filtering, IMRO export, JSON export — is identical.
 
 ---
