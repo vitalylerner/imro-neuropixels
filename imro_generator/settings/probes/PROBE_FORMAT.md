@@ -95,7 +95,10 @@ breaks and no trailing newline.
 | **LFgain** | 50-3000 | LF band amplification (typically 250) |
 | **Filter** | 0-1 | AP highpass filter: 1=ON, 0=OFF |
 
-Every one of the 384 channels must have an entry.
+Normally every one of the 384 channels has an entry (the most compatible form). A
+partial map is also valid — the header count then equals the number of entries
+written (e.g. `(0,270)`) — but OpenEphys' probe viewer may render the unlisted
+channels oddly, so it is opt-in.
 
 ### Example IMRO File
 

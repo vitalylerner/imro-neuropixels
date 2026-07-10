@@ -50,11 +50,20 @@ Use the **Assignment Mode** selector to choose how electrodes are distributed:
 - **Mixed mode** (recommended): banks are interleaved throughout the range, so both columns span the whole depth range — uniform two-column coverage
 - **Striped mode**: the two columns form separate stripes (even column = shallow banks, odd column = deep banks), giving single-column coverage per depth region
 
-### Step 3: Define Your Recording Depth
+### Step 3: Define Your Recording Depth Range(s)
 
-Specify the depth range your electrode will span:
-- **Minimum depth** in mm (e.g., 0 mm = tip of probe)
-- **Maximum depth** in mm (e.g., 5 mm = 5 mm from tip)
+The **Depth Ranges (mm)** table holds one row per range, each with a **Min** and
+**Max** in mm (e.g. 0 mm = tip of probe, 5 mm = 5 mm from tip). Edit the cells
+directly, or drag the corresponding green band on the probe view.
+
+Icon buttons below the table:
+- **＋** — add a range
+- **−** — remove the selected row
+- **✕** — clear all rows
+
+Add several rows to record from more than one window at once — "virtual banks",
+e.g. 5–7 mm together with 12–18 mm. Multiple ranges require **Mixed** mode (see
+Step 4); each range is covered uniformly in both columns.
 
 The NP1.0 probe is 44.16 mm long total, with 4416 electrodes in 2 columns (odd/even alternating), spaced 20 µm vertically within each column and 103 µm horizontally between columns.
 
@@ -69,6 +78,15 @@ How to distribute channels across banks (physical groups along the shaft):
 - **Striped mode**: the K banks are split into two stripes — even column (0, 2, 4, …) fills the lower banks, odd column (1, 3, 5, …) the upper banks
   - Each depth region is sampled by a single column
   - For a two-bank range this reproduces `examples/single_column.imro`
+
+**Allow partial map (< 384 channels):** an NP1.0 probe always records on all 384
+channels, so by default every channel is assigned — any channel that cannot reach
+a requested range is parked on the nearest bank (it will appear just outside your
+range in the probe viewer). For narrow ranges this can be many channels. Tick
+**Allow partial map** to instead export only the channels that land inside a range
+(the header count drops below 384). OpenEphys loads a partial map, but its probe
+viewer may render the unlisted channels oddly — leave the option off for maximum
+compatibility.
 
 ### Step 5: Set Gain and Filter
 

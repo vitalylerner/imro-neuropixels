@@ -112,6 +112,41 @@ Mode selection is the `assignment_mode` argument (`'mixed'` or `'striped'`, defa
 
 ---
 
+## Multiple depth ranges ("virtual banks")
+
+`generate_electrode_list` accepts either a single `(min, max)` tuple or a **list** of
+them, so one 384-channel map can record from several disjoint windows at once (e.g.
+`[(5000, 7000), (12000, 18000)]`). Single-range input uses the mixed/striped logic
+above unchanged.
+
+For two or more ranges the round-robin does **not** give even coverage — with a gap
+bank between the windows it clumps channels and can leave one column empty at the top.
+So multiple ranges use a dedicated per-column fill (`_assign_multi_range`):
+
+- Each column (even = 0, odd = 1) is filled independently, so both columns span every
+  window evenly.
+- Within a column, channels that can reach only one depth are placed first; the rest are
+  placed by **farthest-point insertion** — each fills the largest remaining gap in that
+  column's coverage.
+
+Because each channel reaches depths only 7.68 mm apart, narrow windows may be
+unreachable by some channels; those are parked on the bank nearest a range (see the
+partial-map option below). `assignment_mode` is effectively *mixed* for multiple ranges
+(striped's stripe split is meaningless across disjoint windows).
+
+## Full vs partial map
+
+An NP1.0 probe always records on all 384 channels, so by default (`full=True`) every
+channel is assigned; a channel that cannot reach any range is parked on the nearest
+bank and appears just outside the requested window. With `full=False`
+(`generate_electrode_list`) plus `full_map=False` (`generate_imro_content`) only the
+channels that land inside a range are written and the header count drops below 384 —
+a partial map with nothing outside the ranges. OpenEphys loads a partial map but its
+probe viewer may render the unlisted channels oddly, so the GUI exposes it as an
+opt-in checkbox that is off by default.
+
+---
+
 ## IMRO file structure
 
 The `.imro` file is the SpikeGLX/OpenEphys channel-configuration format. Its header and

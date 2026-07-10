@@ -1,5 +1,5 @@
 # IMRO Neuropixels Generator
-![Main Window](https://raw.githubusercontent.com/vitalylerner/imro-neuropixels/main/docs/img/mainwindow_mixed.jpg)
+![Main Window](https://raw.githubusercontent.com/vitalylerner/imro-neuropixels/main/docs/img/mainwindow_mixed.png)
 
 Neuropixels probe channel configuration tool. Create IMRO files for SpikeGLX/OpenEphys and export probe configurations for Kilosort.
 
@@ -8,8 +8,9 @@ Neuropixels probe channel configuration tool. Create IMRO files for SpikeGLX/Ope
 **Solution:** IMRO Generator lets you configure which electrodes to record from based on depth coverage, then export as IMRO files or [Kilosort probe dictionaries](https://kilosort.readthedocs.io/en/latest/tutorials/make_probe.html).
 
 The GUI lets you:
-- Choose your recording depth range (0–44.16 mm)
-- Select assignment mode (Striped or Mixed) for uniform electrode distribution
+- Choose one or more recording depth ranges (0–44.16 mm) — several disjoint windows at once ("virtual banks")
+- Select assignment mode (Mixed or Striped) for uniform electrode distribution
+- Optionally export a partial map (only in-range channels, < 384)
 - Configure gains, filters, and reference type
 - Save IMRO files for OpenEphys/SpikeGLX
 - Save JSON file for kilosort
@@ -39,10 +40,6 @@ $ imro-gui
 [User Guide](docs/imro_user_guide_A_tutorial.md)
 
 ## Future directions
-
-#### Multiple regions
-
-Currently only one region defined by depth-min and depth-max is available. Need to add an option for multiple regions, for example 3 to 5 mm and 10 to 15 mm. 
 
 #### Adding more probes. 
 Currently works fine with a single [Neropixels1.0-NHP](https://www.neuropixels.org/probe-1-0-nhp-long) probe. The definitions are not hard-coded, but rather are defined in settings files. Need to add more probes to the settings/probes and test with other probes.

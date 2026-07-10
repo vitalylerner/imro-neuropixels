@@ -1,3 +1,4 @@
+import bisect
 import pandas as pd
 from pathlib import Path
 from typing import List
@@ -36,37 +37,55 @@ class ImroGenerator:
         # Load probe mappings
         self.probe_mappings = self._load_probe_mappings()
 
-    def generate_electrode_list(self, depth_min_um: int, depth_max_um: int, assignment_mode: str = 'mixed') -> List[int]:
+    def generate_electrode_list(self, depth_ranges, assignment_mode: str = 'mixed',
+                                full: bool = True) -> List[int]:
         """
-        Assign channels to banks spanning a depth range and return the electrodes.
+        Assign channels to banks covering one or more depth ranges.
+
+        ``depth_ranges`` is either a single ``(min_um, max_um)`` tuple or a list
+        of them. A list of several disjoint windows ("virtual banks") lets a
+        single 384-channel map record from more than one depth band at once
+        (e.g. ``[(5000, 7000), (10000, 12000)]``). A channel is placed in the
+        first range (by union) that one of its banks can reach.
 
         Two assignment modes, which produce genuinely different physical layouts:
 
-        - **mixed** — banks are mixed/interleaved throughout the range via
+        - **mixed** — banks are mixed/interleaved throughout the range(s) via
           round-robin: channel c is assigned bank ``b_start + (c % K)``. Both
-          columns are recorded across the whole depth range, giving uniform
-          two-column coverage. This is the sensible default for a wide range.
+          columns are recorded across the whole span, giving uniform two-column
+          coverage. This is the sensible default.
 
         - **striped** (single-column per depth region) — the two columns form
           separate stripes: even channels (column 0) fill the lower banks, odd
-          channels (column 1) fill the upper banks. Each depth region is sampled
-          by a single column, giving contiguous single-column coverage over a
-          longer span. For a two-bank range this reproduces the layout of
-          ``examples/single_column.imro`` (even → bank b_start, odd → bank
-          b_start+1).
+          channels (column 1) fill the upper banks. For a two-bank single range
+          this reproduces ``examples/single_column.imro``.
 
-        Every channel is assigned to an in-range bank (see ``assign`` below); no
-        channel is dropped or stranded on bank 0.
+        Every channel is assigned to a bank whose electrode lies in one of the
+        ranges when possible (see ``assign``); otherwise the channel is placed on
+        the bank nearest a range. No channel is dropped or stranded on bank 0.
 
         Args:
-            depth_min_um: Minimum depth in micrometers
-            depth_max_um: Maximum depth in micrometers
+            depth_ranges: ``(min_um, max_um)`` or a list of such tuples
             assignment_mode: 'mixed' (interleaved) or 'striped' (single-column)
+            full: if True (default) assign all 384 channels (channels that cannot
+                reach a range are parked on the nearest bank). If False, return
+                only the channels whose electrode falls inside a range — a partial
+                map (< 384 channels) with nothing outside the requested ranges.
 
         Returns:
             List of electrode IDs
         """
-        # Find banks that cover this range
+        # Normalise to a sorted list of (min, max) integer ranges.
+        if len(depth_ranges) == 2 and all(isinstance(v, (int, float)) for v in depth_ranges):
+            depth_ranges = [depth_ranges]
+        ranges = sorted((int(lo), int(hi)) for lo, hi in depth_ranges if hi >= lo)
+        if not ranges:
+            return []
+
+        overall_min = min(lo for lo, hi in ranges)
+        overall_max = max(hi for lo, hi in ranges)
+
+        # Find banks that span the union of the ranges.
         b_start = None
         b_end = None
 
@@ -78,10 +97,10 @@ class ImroGenerator:
             bank_min_um = float(bank_data['y'].min())
             bank_max_um = float(bank_data['y'].max())
 
-            if b_start is None and depth_min_um <= bank_max_um:
+            if b_start is None and overall_min <= bank_max_um:
                 b_start = bank
 
-            if depth_max_um >= bank_min_um:
+            if overall_max >= bank_min_um:
                 b_end = bank
 
         if b_start is None or b_end is None:
@@ -89,21 +108,39 @@ class ImroGenerator:
 
         k = b_end - b_start + 1
 
-        # Per-channel bank -> (electrode_id, depth) lookup, built once.
+        # Per-channel bank -> (electrode_id, depth) lookup, built once, plus a
+        # flat electrode -> depth map for the final in-range filter.
         by_channel = {}
+        ey = {}
         for r in self.df.itertuples():
             by_channel.setdefault(int(r.channel), {})[int(r.bank)] = (int(r.electrode), float(r.y))
+            ey[int(r.electrode)] = float(r.y)
 
         def in_range(y):
-            return depth_min_um <= y <= depth_max_um
+            return any(lo <= y <= hi for lo, hi in ranges)
+
+        def finalize(electrodes):
+            # In partial mode, keep only electrodes that actually land in a range.
+            if full:
+                return electrodes
+            return [e for e in electrodes if in_range(ey[e])]
+
+        # Multiple disjoint ranges ("virtual banks") need per-column uniform
+        # coverage, which the single-range round-robin does not provide. Use a
+        # dedicated fill that spreads each column evenly across the union.
+        if len(ranges) > 1:
+            return finalize(self._assign_multi_range(ranges, by_channel))
+
+        def dist_to_ranges(y):
+            return min(min(abs(y - lo), abs(y - hi)) for lo, hi in ranges)
 
         def assign(channel_id, allowed_banks, preferred_bank):
             """Return an electrode for this channel, always in-range if possible.
 
-            Preference order: the round-robin (preferred) bank if it is in range,
-            otherwise the in-range allowed bank closest to it, otherwise the
-            allowed bank whose depth is nearest the range. A channel is NEVER
-            dropped, so no channel is ever stranded on bank 0 in the export.
+            Preference order: the round-robin (preferred) bank if its electrode
+            falls in any range, otherwise the in-range allowed bank closest to it,
+            otherwise the allowed bank whose depth is nearest a range. A channel
+            is NEVER dropped, so no channel is ever stranded on bank 0.
             """
             cand = by_channel.get(channel_id, {})
             allowed = [b for b in allowed_banks if b in cand]
@@ -113,8 +150,7 @@ class ImroGenerator:
                           key=lambda b: (abs(b - preferred_bank), b))
             if in_r:
                 return cand[in_r[0]][0]
-            nearest = min(allowed, key=lambda b: min(abs(cand[b][1] - depth_min_um),
-                                                     abs(cand[b][1] - depth_max_um)))
+            nearest = min(allowed, key=lambda b: dist_to_ranges(cand[b][1]))
             return cand[nearest][0]
 
         selected_electrodes = []
@@ -146,11 +182,82 @@ class ImroGenerator:
                 rr = odd_banks[i % len(odd_banks)]
                 selected_electrodes.append(assign(channel_id, odd_banks, rr))
 
-        return selected_electrodes
+        return finalize(selected_electrodes)
+
+    def _assign_multi_range(self, ranges, by_channel) -> List[int]:
+        """Cover several disjoint depth ranges with uniform per-column density.
+
+        Each column (even = column 0, odd = column 1) is filled independently so
+        both columns span every range evenly. Within a column, channels that can
+        only reach one depth are placed first, then the remaining ("flexible")
+        channels are placed by farthest-point insertion — each fills the largest
+        remaining gap in that column's coverage. This avoids the clumping and
+        one-column-empty artifacts the single-range round-robin produces when the
+        ranges sit in different banks with a gap between them.
+
+        A channel that cannot reach any range is placed on the bank nearest a
+        range (never stranded on bank 0).
+        """
+        def in_range(y):
+            return any(lo <= y <= hi for lo, hi in ranges)
+
+        def dist_to_ranges(y):
+            return min(min(abs(y - lo), abs(y - hi)) for lo, hi in ranges)
+
+        selected = []
+        for col in (0, 1):
+            channels = [c for c in range(self.total_channels) if c % 2 == col]
+
+            candidates = {}          # channel -> sorted list of (depth, bank)
+            for c in channels:
+                opts = sorted((y, b) for b, (e, y) in by_channel.get(c, {}).items()
+                              if in_range(y))
+                if opts:
+                    candidates[c] = opts
+
+            chosen = {}              # channel -> (depth, bank)
+            covered = []             # sorted chosen depths, for gap measurement
+            flexible = []
+            for c in sorted(candidates):
+                if len(candidates[c]) == 1:
+                    chosen[c] = candidates[c][0]
+                    covered.append(candidates[c][0][0])
+                else:
+                    flexible.append(c)
+            covered.sort()
+
+            def gap_score(depth):
+                # Distance to the nearest already-covered depth (bigger = fills a
+                # larger hole). Infinite when nothing is covered yet.
+                if not covered:
+                    return float('inf')
+                i = bisect.bisect_left(covered, depth)
+                d = float('inf')
+                if i < len(covered):
+                    d = min(d, covered[i] - depth)
+                if i > 0:
+                    d = min(d, depth - covered[i - 1])
+                return d
+
+            for c in flexible:
+                best = max(candidates[c], key=lambda yb: gap_score(yb[0]))
+                chosen[c] = best
+                bisect.insort(covered, best[0])
+
+            for c in channels:
+                banks = by_channel.get(c, {})
+                if c in chosen:
+                    selected.append(banks[chosen[c][1]][0])
+                elif banks:
+                    b = min(banks, key=lambda b: dist_to_ranges(banks[b][1]))
+                    selected.append(banks[b][0])
+
+        return selected
 
     def generate_imro_content(self, electrode_ids: List[int], ap_gain: int = 500,
                            lf_gain: int = 250, ap_filter: bool = True,
-                           ref_type: str = 'tip', probe_type: int = 0) -> str:
+                           ref_type: str = 'tip', probe_type: int = 0,
+                           full_map: bool = True) -> str:
         """
         Generate IMRO format content for selected electrodes.
 
@@ -162,15 +269,19 @@ class ImroGenerator:
         - Header is ``(probe_type,num_channels)`` with a NUMERIC probe type
           (0 = NP1.0). A non-numeric header such as ``NP1000`` is rejected by
           OpenEphys.
-        - Every one of the ``num_channels`` channels gets exactly one entry.
-          OpenEphys has no notion of a disabled channel: any channel not covered
-          by ``electrode_ids`` is parked on bank 0 (its tip electrode).
         - Fields within an entry are SPACE-separated, not comma-separated.
+        - With ``full_map=True`` (default) every one of the probe's channels gets
+          an entry; any channel not covered by ``electrode_ids`` is parked on
+          bank 0 (its tip electrode). This is the most compatible form.
+        - With ``full_map=False`` only the covered channels are written and the
+          header count matches the number of entries (a partial map, < 384
+          channels). OpenEphys loads this but its probe viewer may render the
+          unlisted channels oddly, so it is opt-in.
 
         See ``docs/ISSUES.md`` for the history of this format (previous versions
-        emitted a comma-separated, multi-line file with a ``NP1000`` header and
-        fewer than ``num_channels`` entries, which OpenEphys silently rejected —
-        falling back to its default map of all channels on the tip).
+        emitted a comma-separated, multi-line file with a ``NP1000`` header and a
+        mismatched channel count, which OpenEphys silently rejected — falling back
+        to its default map of all channels on the tip).
 
         Args:
             electrode_ids: List of selected electrode IDs
@@ -179,6 +290,7 @@ class ImroGenerator:
             ap_filter: Whether AP highpass filter is ON
             ref_type: Reference type ('external', 'tip', or 'on_shank')
             probe_type: Numeric IMRO probe type for the header (0 = NP1.0)
+            full_map: emit all channels (True) or only covered ones (False)
 
         Returns:
             IMRO format string ready to write to file
@@ -204,11 +316,17 @@ class ImroGenerator:
             if channel_id not in channel_bank or bank < channel_bank[channel_id]:
                 channel_bank[channel_id] = bank
 
-        # Emit an entry for EVERY channel; uncovered channels default to bank 0.
+        if full_map:
+            # An entry for EVERY channel; uncovered channels default to bank 0.
+            channels = list(range(self.total_channels))
+        else:
+            # Only the covered channels; header count matches the entry count.
+            channels = sorted(channel_bank)
+
         # No trailing newline: OpenEphys-exported files are a single line with no
         # terminator, and matching that exactly avoids parser rejection.
-        parts = [f"({probe_type},{self.total_channels})"]
-        for channel_id in range(self.total_channels):
+        parts = [f"({probe_type},{len(channels)})"]
+        for channel_id in channels:
             bank = channel_bank.get(channel_id, 0)
             parts.append(f"({channel_id} {bank} {ref_id} {ap_gain} {lf_gain} {filter_flag})")
 

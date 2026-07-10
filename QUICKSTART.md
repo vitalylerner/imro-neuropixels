@@ -13,14 +13,17 @@ The probe configuration window will open.
 
 ## Basic Workflow
 
-1. **Set your recording depth**
-   - Drag the red (min) and blue (max) cursor lines on the right to select your depth range
-   - Or type values directly in the "Depth Range (mm)" fields
+1. **Set your recording depth range(s)**
+   - The **Depth Ranges (mm)** table holds one row per range (Min, Max)
+   - Use the icon buttons below the table: **＋** add a range, **−** remove the selected row, **✕** clear all
+   - Add several rows to record from more than one window at once (e.g. 5–7 mm and 12–18 mm)
+   - Each range also shows as a draggable green band on the probe view; drag it to adjust that row
    - The green electrodes show which channels will be recorded
 
 2. **Choose assignment mode**
-   - Select **Striped** or **Mixed** for how electrodes are distributed across depth
-   - Mixed is recommended for more uniform electrode distribution
+   - Select **Mixed** or **Striped** for how electrodes are distributed across depth
+   - Mixed is recommended for uniform two-column coverage (and it is required for multiple ranges)
+   - Optionally tick **Allow partial map (< 384 channels)** to export only in-range channels — leave it off for a fully-compatible 384-channel map
    - Click **Generate Channels** to update the visualization
 
 3. **Configure recording settings**

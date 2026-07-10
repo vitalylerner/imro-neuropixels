@@ -8,10 +8,13 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QComboBox, QCheckBox, QRadioButton, QPushButton, QButtonGroup,
     QFileDialog, QMessageBox, QSpinBox, QDoubleSpinBox, QGraphicsRectItem,
-    QMenu, QAction
+    QMenu, QAction, QTableWidget, QTableWidgetItem, QToolButton,
+    QHeaderView, QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QIntValidator, QDesktopServices
+from PyQt5.QtGui import (
+    QIntValidator, QDesktopServices, QPixmap, QPainter, QPen, QColor, QIcon
+)
 
 import pyqtgraph as pg
 import numpy as np
@@ -42,6 +45,11 @@ class ImroConfigGUI(QMainWindow):
 
         # Current channel configuration
         self.current_channels: List[int] = []
+
+        # Depth-range regions drawn on the plot, and a guard against
+        # table<->region update recursion.
+        self._depth_regions: list = []
+        self._syncing: bool = False
 
         # Setup UI
         self._setup_ui()
@@ -378,32 +386,42 @@ class ImroConfigGUI(QMainWindow):
         group = QGroupBox("Channel Selection")
         group_layout = QVBoxLayout()
 
-        # Depth range in mm
-        group_layout.addWidget(QLabel("Depth Range (mm):"))
+        # Depth ranges ("virtual banks") in mm — one row per range.
+        group_layout.addWidget(QLabel("Depth Ranges (mm):"))
 
-        depth_min_layout = QHBoxLayout()
-        depth_min_layout.addWidget(QLabel("Min:"))
-        self.depth_min_spin = QDoubleSpinBox()
-        self.depth_min_spin.setMinimum(-999999.0)
-        self.depth_min_spin.setMaximum(999999.0)
-        self.depth_min_spin.setValue(0.0)
-        self.depth_min_spin.setSingleStep(0.1)
-        self.depth_min_spin.setDecimals(2)
-        self.depth_min_spin.valueChanged.connect(self._on_depth_changed)
-        depth_min_layout.addWidget(self.depth_min_spin)
-        group_layout.addLayout(depth_min_layout)
+        self.depth_table = QTableWidget(0, 2)
+        self.depth_table.setHorizontalHeaderLabels(["Min", "Max"])
+        self.depth_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.depth_table.verticalHeader().setVisible(False)
+        self.depth_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.depth_table.setMaximumHeight(160)
+        self.depth_table.itemChanged.connect(self._on_table_item_changed)
+        group_layout.addWidget(self.depth_table)
 
-        depth_max_layout = QHBoxLayout()
-        depth_max_layout.addWidget(QLabel("Max:"))
-        self.depth_max_spin = QDoubleSpinBox()
-        self.depth_max_spin.setMinimum(-999999.0)
-        self.depth_max_spin.setMaximum(999999.0)
-        self.depth_max_spin.setValue(self.max_depth_mm)
-        self.depth_max_spin.setSingleStep(0.1)
-        self.depth_max_spin.setDecimals(2)
-        self.depth_max_spin.valueChanged.connect(self._on_depth_changed)
-        depth_max_layout.addWidget(self.depth_max_spin)
-        group_layout.addLayout(depth_max_layout)
+        # Add / Remove / Clear buttons (icons, not text).
+        btn_row = QHBoxLayout()
+        self.add_range_btn = QToolButton()
+        self.add_range_btn.setIcon(self._symbol_icon('add'))
+        self.add_range_btn.setToolTip("Add depth range")
+        self.add_range_btn.clicked.connect(lambda: self._add_depth_row())
+
+        self.remove_range_btn = QToolButton()
+        self.remove_range_btn.setIcon(self._symbol_icon('remove'))
+        self.remove_range_btn.setToolTip("Remove selected range")
+        self.remove_range_btn.clicked.connect(self._remove_depth_row)
+
+        self.clean_range_btn = QToolButton()
+        self.clean_range_btn.setIcon(self._symbol_icon('clean'))
+        self.clean_range_btn.setToolTip("Clear all ranges")
+        self.clean_range_btn.clicked.connect(self._clean_depth_rows)
+
+        for b in (self.add_range_btn, self.remove_range_btn, self.clean_range_btn):
+            btn_row.addWidget(b)
+        btn_row.addStretch()
+        group_layout.addLayout(btn_row)
+
+        # Start with a single full-depth range (previous default behaviour).
+        self._add_depth_row(0.0, round(self.max_depth_mm, 2))
 
         # Assignment mode
         group_layout.addWidget(QLabel("Assignment Mode:"))
@@ -417,6 +435,14 @@ class ImroConfigGUI(QMainWindow):
         group_layout.addWidget(self.assignment_striped_radio)
         group_layout.addWidget(self.assignment_mixed_radio)
 
+        # Allow a partial map (< 384 channels). Off by default: a full 384-channel
+        # map is the most compatible; a partial map keeps only in-range channels
+        # but OpenEphys' probe viewer may render the unlisted ones oddly.
+        self.partial_map_check = QCheckBox("Allow partial map (< 384 channels)")
+        self.partial_map_check.setChecked(False)
+        self.partial_map_check.toggled.connect(self.generate_channels)
+        group_layout.addWidget(self.partial_map_check)
+
         # Generate button
         self.generate_btn = QPushButton("Generate Channels")
         self.generate_btn.clicked.connect(self.generate_channels)
@@ -424,6 +450,118 @@ class ImroConfigGUI(QMainWindow):
 
         group.setLayout(group_layout)
         layout.addWidget(group)
+
+    # ------------------------------------------------------------------ #
+    # Depth-range table + plot regions
+    # ------------------------------------------------------------------ #
+    def _symbol_icon(self, kind: str) -> QIcon:
+        """Draw a small +, - or x icon (no image assets required)."""
+        pm = QPixmap(22, 22)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        color = {'add': QColor(0, 150, 0),
+                 'remove': QColor(200, 120, 0),
+                 'clean': QColor(200, 0, 0)}.get(kind, QColor(0, 0, 0))
+        pen = QPen(color)
+        pen.setWidth(3)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        if kind == 'add':
+            p.drawLine(11, 5, 11, 17)
+            p.drawLine(5, 11, 17, 11)
+        elif kind == 'remove':
+            p.drawLine(5, 11, 17, 11)
+        else:  # clean: an X (clear all)
+            p.drawLine(5, 5, 17, 17)
+            p.drawLine(17, 5, 5, 17)
+        p.end()
+        return QIcon(pm)
+
+    def _row_values_mm(self, row: int):
+        """Return (min_mm, max_mm) for a table row, sorted, or None if invalid."""
+        try:
+            lo = float(self.depth_table.item(row, 0).text())
+            hi = float(self.depth_table.item(row, 1).text())
+        except (AttributeError, ValueError):
+            return None
+        return (lo, hi) if hi >= lo else (hi, lo)
+
+    def _set_row_mm(self, row: int, lo_mm: float, hi_mm: float) -> None:
+        self.depth_table.item(row, 0).setText(f"{lo_mm:.2f}")
+        self.depth_table.item(row, 1).setText(f"{hi_mm:.2f}")
+
+    def _add_depth_row(self, lo_mm: float = 0.0, hi_mm: float = None) -> None:
+        if hi_mm is None:
+            hi_mm = round(self.max_depth_mm, 2)
+        self._syncing = True
+        r = self.depth_table.rowCount()
+        self.depth_table.insertRow(r)
+        self.depth_table.setItem(r, 0, QTableWidgetItem(f"{lo_mm:.2f}"))
+        self.depth_table.setItem(r, 1, QTableWidgetItem(f"{hi_mm:.2f}"))
+        self._syncing = False
+        self._refresh_depth_regions()
+
+    def _remove_depth_row(self) -> None:
+        rows = sorted({i.row() for i in self.depth_table.selectedIndexes()}, reverse=True)
+        if not rows and self.depth_table.rowCount() > 0:
+            rows = [self.depth_table.rowCount() - 1]
+        for r in rows:
+            self.depth_table.removeRow(r)
+        self._refresh_depth_regions()
+
+    def _clean_depth_rows(self) -> None:
+        self.depth_table.setRowCount(0)
+        self._refresh_depth_regions()
+
+    def _read_depth_ranges_um(self):
+        """All valid table rows as a list of (min_um, max_um) integer tuples."""
+        ranges = []
+        for row in range(self.depth_table.rowCount()):
+            vals = self._row_values_mm(row)
+            if vals is None:
+                continue
+            lo, hi = vals
+            ranges.append((int(lo * 1000), int(hi * 1000)))
+        return ranges
+
+    def _on_table_item_changed(self, item) -> None:
+        if self._syncing:
+            return
+        self._refresh_depth_regions()
+
+    def _refresh_depth_regions(self) -> None:
+        """Redraw one draggable shaded band per depth range on the plot."""
+        if not hasattr(self, 'plot_widget'):
+            return
+        for reg in self._depth_regions:
+            try:
+                self.plot_widget.removeItem(reg)
+            except Exception:
+                pass
+        self._depth_regions = []
+        for row in range(self.depth_table.rowCount()):
+            vals = self._row_values_mm(row)
+            if vals is None:
+                continue
+            lo_um, hi_um = vals[0] * 1000, vals[1] * 1000
+            reg = pg.LinearRegionItem(
+                values=(lo_um, hi_um), orientation='horizontal', movable=True,
+                brush=pg.mkBrush(0, 180, 0, 45), pen=pg.mkPen(color=(0, 150, 0), width=1)
+            )
+            reg._row = row
+            reg.sigRegionChangeFinished.connect(lambda _=None, rg=reg: self._on_region_changed(rg))
+            self.plot_widget.addItem(reg)
+            self._depth_regions.append(reg)
+
+    def _on_region_changed(self, reg) -> None:
+        """Write a dragged region's bounds back into its table row."""
+        if self._syncing:
+            return
+        lo_um, hi_um = reg.getRegion()
+        self._syncing = True
+        self._set_row_mm(reg._row, lo_um / 1000.0, hi_um / 1000.0)
+        self._syncing = False
 
     def _create_probe_canvas(self, layout: QHBoxLayout) -> None:
         """Create PyQtGraph probe visualization showing all 4416 electrodes."""
@@ -453,27 +591,9 @@ class ImroConfigGUI(QMainWindow):
         self.plot_widget.setXRange(-60, 160, padding=0)
         self.plot_widget.setYRange(0, max_y + 1000, padding=0)
 
-        # Add draggable depth cursors (mm -> µm conversion)
-        depth_min_um = self.depth_min_spin.value() * 1000
-        depth_max_um = self.depth_max_spin.value() * 1000
-
-        self.depth_min_cursor = pg.InfiniteLine(
-            pos=depth_min_um, angle=0, movable=True,
-            pen=pg.mkPen(color='red', width=2, style=Qt.SolidLine)
-        )
-        self.depth_max_cursor = pg.InfiniteLine(
-            pos=depth_max_um, angle=0, movable=True,
-            pen=pg.mkPen(color='blue', width=2, style=Qt.SolidLine)
-        )
-
-        self.depth_min_cursor.setCursor(pg.QtGui.QCursor(pg.QtCore.Qt.OpenHandCursor))
-        self.depth_max_cursor.setCursor(pg.QtGui.QCursor(pg.QtCore.Qt.OpenHandCursor))
-
-        self.depth_min_cursor.sigPositionChanged.connect(self._on_cursor_min_moved)
-        self.depth_max_cursor.sigPositionChanged.connect(self._on_cursor_max_moved)
-
-        self.plot_widget.addItem(self.depth_min_cursor)
-        self.plot_widget.addItem(self.depth_max_cursor)
+        # Draggable depth-range bands (one per table row) are added by
+        # _refresh_depth_regions once the table exists.
+        self._refresh_depth_regions()
 
         container_layout.addWidget(self.plot_widget)
 
@@ -487,35 +607,6 @@ class ImroConfigGUI(QMainWindow):
     def _on_ref_type_changed(self) -> None:
         """Handle reference type change (ref_mode_container always hidden)."""
         pass
-
-    def _on_depth_changed(self) -> None:
-        """Handle depth range change from spinboxes."""
-        depth_min_mm = self.depth_min_spin.value()
-        depth_max_mm = self.depth_max_spin.value()
-
-        # Update cursor positions (convert mm to µm)
-        depth_min_um = depth_min_mm * 1000
-        depth_max_um = depth_max_mm * 1000
-        self.depth_min_cursor.setPos(depth_min_um)
-        self.depth_max_cursor.setPos(depth_max_um)
-
-    def _on_cursor_min_moved(self) -> None:
-        """Handle min depth cursor movement."""
-        depth_min_um = self.depth_min_cursor.pos().y()
-        depth_min_mm = depth_min_um / 1000.0
-        # Update spinbox without triggering recursion
-        self.depth_min_spin.blockSignals(True)
-        self.depth_min_spin.setValue(depth_min_mm)
-        self.depth_min_spin.blockSignals(False)
-
-    def _on_cursor_max_moved(self) -> None:
-        """Handle max depth cursor movement."""
-        depth_max_um = self.depth_max_cursor.pos().y()
-        depth_max_mm = depth_max_um / 1000.0
-        # Update spinbox without triggering recursion
-        self.depth_max_spin.blockSignals(True)
-        self.depth_max_spin.setValue(depth_max_mm)
-        self.depth_max_spin.blockSignals(False)
 
     def _reset_view(self) -> None:
         """Reset probe visualization to full view."""
@@ -570,23 +661,26 @@ class ImroConfigGUI(QMainWindow):
         self.plot_widget.setXRange(-10, 250, padding=0)
         self.plot_widget.setYRange(-100, max_y + 1000, padding=0)
         self.plot_widget.setTitle("NP1.0 Probe - All 4416 channels available")
-        #self.plot_widget.setTit
+
+        # Redraw depth-range bands (plot_widget.clear() removed them).
+        self._depth_regions = []
+        self._refresh_depth_regions()
 
     def generate_channels(self) -> None:
-        """Generate channel configuration using depth-range algorithm."""
+        """Generate channel configuration from one or more depth ranges."""
         try:
-            depth_min_mm = self.depth_min_spin.value()
-            depth_max_mm = self.depth_max_spin.value()
-
-            # Convert to micrometers
-            depth_min_um = int(depth_min_mm * 1000)
-            depth_max_um = int(depth_max_mm * 1000)
+            depth_ranges = self._read_depth_ranges_um()
+            if not depth_ranges:
+                QMessageBox.warning(self, "Warning", "Add at least one depth range")
+                return
 
             # Get assignment mode
             assignment_mode = 'mixed' if self.assignment_mixed_radio.isChecked() else 'striped'
+            full = not self.partial_map_check.isChecked()
 
-            # Generate electrode list
-            self.current_channels = self.imro_gen.generate_electrode_list(depth_min_um, depth_max_um, assignment_mode)
+            # Generate electrode list across all ranges
+            self.current_channels = self.imro_gen.generate_electrode_list(
+                depth_ranges, assignment_mode, full=full)
 
             self.update_visualization()
         except Exception as e:
@@ -661,6 +755,10 @@ class ImroConfigGUI(QMainWindow):
             info_text = f"NP1.0: {len(self.current_channels)} channels"
             self.plot_widget.setTitle(info_text)
 
+        # Redraw depth-range bands (plot_widget.clear() removed them).
+        self._depth_regions = []
+        self._refresh_depth_regions()
+
     def save_imro(self) -> None:
         """Save IMRO file."""
         if not self.current_channels:
@@ -689,10 +787,11 @@ class ImroConfigGUI(QMainWindow):
                     ap_gain=ap_gain,
                     lf_gain=lf_gain,
                     ap_filter=ap_filter,
-                    ref_type=ref_type
+                    ref_type=ref_type,
+                    full_map=not self.partial_map_check.isChecked()
                 )
 
-                with open(file_path, 'w') as f:
+                with open(file_path, 'w', newline='') as f:
                     f.write(content)
 
                 QMessageBox.information(self, "Success", f"Saved IMRO to {file_path}")
@@ -748,11 +847,11 @@ class ImroConfigGUI(QMainWindow):
                 # Update GUI with loaded configuration
                 self.current_channels = imro_data['electrode_ids']
 
-                # Update depth spinboxes
+                # Update depth table (single range spanning the loaded extent)
                 depth_min_mm = imro_data['depth_min_um'] / 1000.0
                 depth_max_mm = imro_data['depth_max_um'] / 1000.0
-                self.depth_min_spin.setValue(depth_min_mm)
-                self.depth_max_spin.setValue(depth_max_mm)
+                self.depth_table.setRowCount(0)
+                self._add_depth_row(round(depth_min_mm, 2), round(depth_max_mm, 2))
 
                 # Update gains and filter
                 self.ap_gain_combo.setCurrentText(str(imro_data['ap_gain']))
@@ -787,8 +886,8 @@ class ImroConfigGUI(QMainWindow):
         self.ref_external_radio.setChecked(False)
         self.ref_tip_radio.setChecked(True)
         self.ref_own_radio.setChecked(True)
-        self.depth_min_spin.setValue(0.0)
-        self.depth_max_spin.setValue(self.max_depth_mm)
+        self.depth_table.setRowCount(0)
+        self._add_depth_row(0.0, round(self.max_depth_mm, 2))
         self.current_channels = []
         self._show_full_probe()
 
