@@ -59,10 +59,8 @@ example file `20mm.imro` in action, as seen in [`OpenEphys Probe Viewer`](https:
 
 ![IMRO generator main window](https://raw.githubusercontent.com/vitalylerner/imro-neuropixels/main/docs/img/mainwindow_striped.jpg)
 
-Set boundaries 10mm to 30mm
-
+Set boundaries according to what you
 Map -> Save as IMRO 
-
 Map -> Save kilosort probe
 
 ## Helpful Resources
