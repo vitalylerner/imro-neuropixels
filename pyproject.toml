@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imro-neuropixels"
-version = "0.1.0"
+version = "0.2.0"
 description = "NP1.0 Neuropixels probe configuration and IMRO/Kilosort file generator with GUI"
 readme = "README.md"
 requires-python = ">=3.8"

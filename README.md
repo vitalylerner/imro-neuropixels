@@ -57,7 +57,7 @@ example file `20mm.imro` in action, as seen in [`OpenEphys Probe Viewer`](https:
 
 ### Picking an active region for recording
 
-![IMRO generator main window](https://raw.githubusercontent.com/vitalylerner/imro-neuropixels/main/docs/img/mainwindow_striped.jpg)
+![IMRO generator main window](https://raw.githubusercontent.com/vitalylerner/imro-neuropixels/main/docs/img/mainwindow_striped.png)
 
 Set boundaries according to what you
 Map -> Save as IMRO 

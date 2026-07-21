@@ -6,5 +6,5 @@ try:
 except ImportError:
     __all__ = ['ImroGenerator']
 
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
